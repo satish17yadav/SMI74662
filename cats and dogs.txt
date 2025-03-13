@@ -1,73 +1,211 @@
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-import matplotlib.pyplot as plt
+
 import numpy as np
+import pandas as pd
+from .preprocessing.image import ImageDataGenerator,load_img
+from .utils import to_categorical
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+import random
 import os
+Image_Width=128
+Image_Height=128
+Image_Size=(Image_Width,Image_Height)
+Image_Channels=3
+filenames=os.listdir("./dogs-vs-cats/train")
+categories=[]
+for f_name in filenames:
+category=f_name.split('.')[0]
+if category=='dog':
+categories.append(1)
+else:
+categories.append(0)
+df=pd.DataFrame({
+'filename':filenames,
+'category':categories
+})
+from .models import Sequential
+from .layers import Conv2D,MaxPooling2D,\
+Dropout,Flatten,Dense,Activation,\
+BatchNormalization
+model=Sequential()
+model.add(Conv2D(32,(3,3),activation='relu',input_shape=(Image_Width,Image_Height,Image_Channels)))
+model.add(BatchNormalization())
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(Dropout(0.25))
+model.add(Conv2D(64,(3,3),activation='relu'))
+model.add(BatchNormalization())
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(Dropout(0.25))
+model.add(Conv2D(128,(3,3),activation='relu'))
+model.add(BatchNormalization())
+model.add(MaxPooling2D(pool_size=(2,2)))
+model.add(Dropout(0.25))
+model.add(Flatten())
+model.add(Dense(512,activation='relu'))
+model.add(BatchNormalization())
+model.add(Dropout(0.5))
+model.add(Dense(2,activation='softmax'))
+model.compile(loss='categorical_crossentropy',
+optimizer='rmsprop',metrics=['accuracy'])
 
-# Set data paths
-data_dir = keras.utils.get_file(
-    "cats_and_dogs", "https://storage.googleapis.com/mledu-datasets/cats_and_dogs_filtered.zip",
-    extract=True)
-base_dir = os.path.join(os.path.dirname(data_dir), 'cats_and_dogs_filtered')
+from .callbacks import EarlyStopping, ReduceLROnPlateau
+earlystop = EarlyStopping(patience = 10)
+learning_rate_reduction = ReduceLROnPlateau(monitor = 'val_acc',patience = 2,verbose = 1,factor = 0.5,min_lr = 0.00001)
+callbacks = [earlystop,learning_rate_reduction]
+df["category"] = df["category"].replace({0:'cat',1:'dog'})
+train_df,validate_df = train_test_split(df,test_size=0.20,
+random_state=42)
+train_df = train_df.reset_index(drop=True)
+validate_df = validate_df.reset_index(drop=True)
+total_train=train_df.shape[0]
+total_validate=validate_df.shape[0]
+batch_size=15
 
-train_dir = os.path.join(base_dir, 'train')
-validation_dir = os.path.join(base_dir, 'validation')
-
-# Image parameters
-img_size = (150, 150)
-batch_size = 32
-
-# Data preprocessing
-datagen = keras.preprocessing.image.ImageDataGenerator(rescale=1./255)
-train_generator = datagen.flow_from_directory(
-    train_dir,
-    target_size=img_size,
-    batch_size=batch_size,
-    class_mode='binary'
+train_datagen = ImageDataGenerator(rotation_range=15,
+rescale=1./255,
+shear_range=0.1,
+zoom_range=0.2,
+horizontal_flip=True,
+width_shift_range=0.1,
+height_shift_range=0.1
 )
-validation_generator = datagen.flow_from_directory(
-    validation_dir,
-    target_size=img_size,
-    batch_size=batch_size,
-    class_mode='binary'
+train_generator = train_datagen.flow_from_dataframe(train_df,
+"./dogs-vs-cats/train/",x_col='filename',y_col='category',
+target_size=Image_Size,
+class_mode='categorical',
+batch_size=batch_size)
+validation_datagen = ImageDataGenerator(rescale=1./255)
+validation_generator = validation_datagen.flow_from_dataframe(
+validate_df, 
+"./dogs-vs-cats/train/", 
+x_col='filename',
+y_col='category',
+target_size=Image_Size,
+class_mode='categorical',
+batch_size=batch_size
 )
-
-# Building the CNN model
-model = keras.Sequential([
-    layers.Conv2D(32, (3, 3), activation='relu', input_shape=(150, 150, 3)),
-    layers.MaxPooling2D(2, 2),
-    layers.Conv2D(64, (3, 3), activation='relu'),
-    layers.MaxPooling2D(2, 2),
-    layers.Conv2D(128, (3, 3), activation='relu'),
-    layers.MaxPooling2D(2, 2),
-    layers.Flatten(),
-    layers.Dense(512, activation='relu'),
-    layers.Dense(1, activation='sigmoid')
-])
-
-# Compile the model
-model.compile(optimizer='adam',
-              loss='binary_crossentropy',
-              metrics=['accuracy'])
-
-# Train the model
-epochs = 10
-history = model.fit(
-    train_generator,
-    epochs=epochs,
-    validation_data=validation_generator
+test_datagen = ImageDataGenerator(rotation_range=15,
+rescale=1./255,
+shear_range=0.1,
+zoom_range=0.2,
+horizontal_flip=True,
+width_shift_range=0.1,
+height_shift_range=0.1)
+test_generator = train_datagen.flow_from_dataframe(train_df,
+"./dogs-vs-cats/test/",x_col='filename',y_col='category',
+target_size=Image_Size,
+class_mode='categorical',
+batch_size=batch_size)
+epochs=10
+history = model.fit_generator(
+train_generator, 
+epochs=epochs,
+validation_data=validation_generator,
+validation_steps=total_validate//batch_size,
+steps_per_epoch=total_train//batch_size,
+callbacks=callbacks
 )
+model.save("model1_catsVSdogs_10epoch.h5")
 
-# Plot training history
-plt.plot(history.history['accuracy'], label='accuracy')
-plt.plot(history.history['val_accuracy'], label='val_accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.legend()
+test_filenames = os.listdir("./dogs-vs-cats/test1")
+test_df = pd.DataFrame({
+'filename': test_filenames
+})
+nb_samples = test_df.shape[0]
+
+predict = model.predict_generator(test_generator, steps=np.ceil(nb_samples/batch_size))
+
+test_df['category'] = np.argmax(predict, axis=-1)
+label_map = dict((v,k) for k,v in train_generator.class_indices.items())
+test_df['category'] = test_df['category'].replace(label_map)
+test_df['category'] = test_df['category'].replace({ 'dog': 1, 'cat': 0 })
+:
+sample_test = test_df.head(18)
+sample_test.head()
+plt.figure(figsize=(12, 24))
+for index, row in sample_test.iterrows():
+filename = row['filename']
+category = row['category']
+img = load_img("./dogs-vs-cats/test1/"+filename, target_size=Image_Size)
+plt.subplot(6, 3, index+1)
+plt.imshow(img)
+plt.xlabel(filename + '(' + "{}".format(category) + ')' )
+plt.tight_layout()
 plt.show()
 
-# Save the model
-model.save("cats_vs_dogs_classifier.h5")
 
-print("Model training complete and saved as 'cats_vs_dogs_classifier.h5'")
+results={
+0:'cat',
+1:'dog'
+}
+from PIL import Image
+import numpy as np
+im=Image.open("__image_path_TO_custom_image")
+im=im.resize(Image_Size)
+im=np.expand_dims(im,axis=0)
+im=np.array(im)
+im=im/255
+pred=model.predict_classes([im])[0]
+print(pred,results[pred])
+
+To install Tkinter :
+sudo apt-get install python3-tk
+import tkinter as tk
+from tkinter import filedialog
+from tkinter import *
+from PIL import ImageTk, Image
+import numpy
+from .models import load_model
+model = load_model('model1_catsVSdogs_10epoch.h5')
+#dictionary to label all traffic signs class.
+classes = { 
+0:'its a cat',
+1:'its a dog',
+}
+#initialise GUI
+top=tk.Tk()
+top.geometry('800x600')
+top.title('CatsVSDogs Classification')
+top.configure(background='#CDCDCD')
+label=Label(top,background='#CDCDCD', font=('arial',15,'bold'))
+sign_image = Label(top)
+def classify(file_path):
+global label_packed
+image = Image.open(file_path)
+image = image.resize((128,128))
+image = numpy.expand_dims(image, axis=0)
+image = numpy.array(image)
+image = image/255
+pred = model.predict_classes([image])[0]
+sign = classes[pred]
+print(sign)
+label.configure(foreground='#011638', text=sign) 
+def show_classify_button(file_path):
+classify_b=Button(top,text="Classify Image",
+command=lambda: classify(file_path),
+padx=10,pady=5)
+classify_b.configure(background='#364156', foreground='white',
+font=('arial',10,'bold'))
+classify_b.place(relx=0.79,rely=0.46)
+def upload_image():
+try:
+file_path=filedialog.askopenfilename()
+uploaded=Image.open(file_path)
+uploaded.thumbnail(((top.winfo_width()/2.25),
+(top.winfo_height()/2.25)))
+im=ImageTk.PhotoImage(uploaded)
+sign_image.configure(image=im)
+sign_image.image=im
+label.configure(text='')
+show_classify_button(file_path)
+except:
+pass
+upload=Button(top,text="Upload an image",command=upload_image,padx=10,pady=5)
+upload.configure(background='#364156', foreground='white',font=('arial',10,'bold'))
+upload.pack(side=BOTTOM,pady=50)
+sign_image.pack(side=BOTTOM,expand=True)
+label.pack(side=BOTTOM,expand=True)
+heading = Label(top, text="CatsVSDogs Classification",pady=20, font=('arial',20,'bold'))
+heading.configure(background='#CDCDCD',foreground='#364156')
+heading.pack()
+top.mainloop()
