@@ -1,0 +1,36 @@
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+import pandas as pd
+
+# Download VADER lexicon
+nltk.download('vader_lexicon')
+
+# Initialize sentiment analyzer
+sia = SentimentIntensityAnalyzer()
+
+def analyze_sentiment(text):
+    """Analyze sentiment of a given text."""
+    score = sia.polarity_scores(text)
+    if score['compound'] >= 0.05:
+        return 'Positive'
+    elif score['compound'] <= -0.05:
+        return 'Negative'
+    else:
+        return 'Neutral'
+
+# User input for restaurant reviews
+reviews = []
+n = int(input("Enter the number of reviews: "))
+for i in range(n):
+    review = input(f"Enter review {i+1}: ")
+    reviews.append(review)
+
+data = {"Review": reviews}
+
+df = pd.DataFrame(data)
+
+# Apply sentiment analysis
+df['Sentiment'] = df['Review'].apply(analyze_sentiment)
+
+# Display results
+print(df)
