@@ -1,0 +1,58 @@
+import difflib
+import os
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
+class PlagiarismChecker:
+    def __init__(self, directory):
+        self.directory = directory
+        self.files = self._load_files()
+        self.vectorizer = TfidfVectorizer()
+    
+    def _load_files(self):
+        """Loads text files from the given directory."""
+        files = {}
+        for file_name in os.listdir(self.directory):
+            if file_name.endswith(".txt"):
+                with open(os.path.join(self.directory, file_name), 'r', encoding='utf-8') as file:
+                    files[file_name] = file.read()
+        return files
+    
+    def check_plagiarism(self):
+        """Checks plagiarism among loaded text files."""
+        texts = list(self.files.values())
+        filenames = list(self.files.keys())
+        tfidf_matrix = self.vectorizer.fit_transform(texts)
+        similarity_matrix = cosine_similarity(tfidf_matrix)
+        
+        results = []
+        for i in range(len(filenames)):
+            for j in range(i + 1, len(filenames)):
+                similarity_score = similarity_matrix[i, j]
+                if similarity_score > 0.3:  # Threshold for plagiarism detection
+                    results.append((filenames[i], filenames[j], similarity_score))
+        
+        return results
+    
+    def detailed_comparison(self, file1, file2):
+        """Compares two files and highlights similar content."""
+        text1 = self.files[file1].splitlines()
+        text2 = self.files[file2].splitlines()
+        diff = difflib.unified_diff(text1, text2, lineterm='')
+        return '\n'.join(diff)
+
+# Usage
+if __name__ == "__main__":
+    directory = input("Enter the directory containing text files: ")
+    checker = PlagiarismChecker(directory)
+    results = checker.check_plagiarism()
+    
+    if results:
+        print("Potential Plagiarism Detected:")
+        for file1, file2, score in results:
+            print(f"{file1} <--> {file2} | Similarity: {score:.2f}")
+            print("Detailed Comparison:")
+            print(checker.detailed_comparison(file1, file2))
+            print("-" * 50)
+    else:
+        print("No plagiarism detected.")
